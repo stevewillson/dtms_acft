@@ -1,0 +1,428 @@
+<html>
+<meta charset="UTF-8">
+<head>
+  <link rel="stylesheet" href="css/bootstrap.min.css">
+  <link rel="stylesheet" href="css/index.css">
+  <link rel="stylesheet" href="css/theme.bootstrap_4.css">
+  <link rel="stylesheet" href="css/datepicker.min.css">
+</head>
+<body>
+
+<div class="form-group">
+  <label for="dtmsAcftReportXslx">Choose the DTMS ACFT report to process</label>
+  <input type="file" id="dtmsAcftReportXslx" name="dtmsAcftReportXslx"/>
+</div>
+
+<div class="form-group">
+  <label for="acftComplianceDate">Choose the date to calculate the ACFT stats off of</label>
+  <input id="acftComplianceDate" type="text" placeholder="" />
+  </br>
+  <button id="displayAcftStats" type="button" class="btn btn-primary btn-lg">Display ACFT Statistics</button>
+</div>
+
+<table id="acftComplianceTable" class="table table-dark table-bordered" > </table> 
+<table id="personTable" class="table table-dark table-bordered" > </table> 
+
+<script src="js/jquery-3.4.1.min.js"></script>
+<script src="js/jquery.csv.min.js"></script>
+<script src="js/luxon.min.js"></script>
+<script src="js/jszip.js"></script>
+<script src="js/xlsx.js"></script>
+<script src="js/jquery.tablesorter.min.js"></script>
+<script src="js/datepicker.min.js"></script>
+
+<script>
+var DateTime = luxon.DateTime
+var dtmsAcftReport = []
+
+let acftComplianceDate = document.getElementById('acftComplianceDate')
+
+const acftComplianceDatePicker= datepicker(acftComplianceDate, {
+  formatter: (input, date, instance) => {
+    const value = date.toISOString().slice(0,10)
+    acftComplianceDate.value = value 
+  }
+})
+
+// this contains personnel acft records
+$('#dtmsAcftReportXslx').on('change', function(event) {
+  var dtmsAcftReportFile = event.target.files[0]
+  var reader = new FileReader()
+  reader.onload = function (e) {
+    binary = ""
+    bytes = new Uint8Array(e.target.result)
+    length = bytes.byteLength
+    for (var i = 0; i < length; i += 1) {
+      binary += String.fromCharCode(bytes[i])
+    }
+    workbook = XLSX.read(binary, {
+      type: 'binary',
+      //cellDates: true,
+      cellDates: false,
+    })
+    dtmsAcftReport = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+
+    // this is not parsing the dates properly
+    // create a luxon DateTime named 'parsedLastAcft' from the 'Lastacft' JS Date
+    dtmsAcftReport = dtmsAcftReport.map(setParsedLastAcft)
+  }
+  reader.onerror = function (ex) {
+    console.log(ex)
+  }
+  reader.readAsArrayBuffer(dtmsAcftReportFile)
+})
+
+function generateAcftTable () {
+  let acftTable = document.getElementById('acftComplianceTable') 
+
+  while(acftTable.hasChildNodes()) {
+    acftTable.removeChild(acftTable.firstChild);
+  }
+
+  let acftTableHead = acftTable.createTHead()
+  let acftTableHeadRow = acftTableHead.insertRow(-1)
+  let acftTableHeadCell = acftTableHeadRow.insertCell(-1)
+  acftTableHeadCell.innerHTML = 'Unit'
+
+  acftTableHeadCell = acftTableHeadRow.insertCell(-1)
+  acftTableHeadCell.innerHTML = 'Complete/Req'
+
+  acftTableHeadCell = acftTableHeadRow.insertCell(-1)
+  acftTableHeadCell.innerHTML = 'Expired'
+
+  acftTableHeadCell = acftTableHeadRow.insertCell(-1)
+  acftTableHeadCell.innerHTML = 'Due within 30 days'
+
+  acftTableHeadCell = acftTableHeadRow.insertCell(-1)
+  acftTableHeadCell.innerHTML = 'Average MDL Score'
+
+  acftTableHeadCell = acftTableHeadRow.insertCell(-1)
+  acftTableHeadCell.innerHTML = 'Average SPT Score'
+
+  acftTableHeadCell = acftTableHeadRow.insertCell(-1)
+  acftTableHeadCell.innerHTML = 'Average HRP Score'
+
+  acftTableHeadCell = acftTableHeadRow.insertCell(-1)
+  acftTableHeadCell.innerHTML = 'Average SDC Score'
+
+  acftTableHeadCell = acftTableHeadRow.insertCell(-1)
+  acftTableHeadCell.innerHTML = 'Average LTK Score'
+
+  acftTableHeadCell = acftTableHeadRow.insertCell(-1)
+  acftTableHeadCell.innerHTML = 'Average 2MR Score'
+
+  acftTableHeadCell = acftTableHeadRow.insertCell(-1)
+  acftTableHeadCell.innerHTML = 'Average Score'
+
+  let acftTableBody = document.createElement('tbody')
+
+  let acftComplianceDate = document.getElementById('acftComplianceDate').value
+  let acftComplianceDateParsed = ''
+  if (acftComplianceDate == undefined || acftComplianceDate === '') {
+    acftComplianceDateParsed = luxon.DateTime.local()
+  } else {
+    acftComplianceDateParsed = luxon.DateTime.fromISO(acftComplianceDate)
+  }
+
+  // get the list of units from the dtmsAcftReport
+  // use the 'Unit Attached' if exists, then use the 'Unit Assigned'
+  // sort the units alphabetically
+  let dtmsUnitArray = dtmsAcftReport.map(getUnits)
+    .reduce(getUniqueValues,[])
+    .sort()
+
+  // add the 'All' group to the dtmsUnitArray to show stats for all Soldiers
+  dtmsUnitArray.push('All')
+
+  dtmsUnitArray.forEach(function (unit) {
+    // on the export, do all Soldiers have records?
+    // first, make the list of all Soldiers in the unit, then find their acft scores, it is ok if a Soldier doesn't have a pt score, just print blank
+
+    // get Soldiers in the unit
+    let soldierList = dtmsAcftReport.filter(getUnitSoldierList, { unit: unit })
+
+    acftTableRow = acftTableBody.insertRow(-1)
+    acftTableCell = acftTableRow.insertCell(-1)
+    acftTableCell.innerHTML = unit
+    acftTableCell.setAttribute('data-unit',unit)
+    acftTableCell.setAttribute('data-column','unit')
+    acftTableCell.onclick = cellClickHandler
+
+    acftTableCell = acftTableRow.insertCell(-1)
+    let completeAcft = soldierList.filter(isSoldierCurrentAcft, { projectedDate: acftComplianceDateParsed })
+    let notCompleteAcft = soldierList.filter(isSoldierExpiredAcft, { projectedDate: acftComplianceDateParsed })
+    let numCompleteAcft = completeAcft.length
+    let numRequiredAcft = parseInt(completeAcft.length) + parseInt(notCompleteAcft.length)
+
+    acftTableCell.innerHTML = `${Math.round(numCompleteAcft*100/numRequiredAcft)}% (${numCompleteAcft} / ${numRequiredAcft})`;
+    acftTableCell.setAttribute('data-unit',unit)
+    acftTableCell.setAttribute('data-column','currentAcft')
+    acftTableCell.onclick = cellClickHandler
+
+    acftTableCell = acftTableRow.insertCell(-1)
+    acftTableCell.innerHTML = notCompleteAcft.length.toString()
+    acftTableCell.setAttribute('data-unit',unit)
+    acftTableCell.setAttribute('data-column','expiredAcft')
+    acftTableCell.onclick = cellClickHandler
+
+    acftTableCell = acftTableRow.insertCell(-1)
+    acftTableCell.innerHTML = soldierList.filter(isSoldierDueAcftWithin30Days, { projectedDate: acftComplianceDateParsed }).length.toString()
+    acftTableCell.setAttribute('data-unit',unit)
+    acftTableCell.setAttribute('data-column','dueAcftWithin30Days')
+    acftTableCell.onclick = cellClickHandler
+
+    acftTableCell = acftTableRow.insertCell(-1)
+    acftTableCell.innerHTML = Math.round(getEventScoreAverage(completeAcft, 'Deadlift Score')).toString()
+    acftTableCell.setAttribute('data-unit',unit)
+
+    acftTableCell = acftTableRow.insertCell(-1)
+    acftTableCell.innerHTML = Math.round(getEventScoreAverage(completeAcft, 'Throw Score')).toString()
+    acftTableCell.setAttribute('data-unit',unit)
+
+    acftTableCell = acftTableRow.insertCell(-1)
+    acftTableCell.innerHTML = Math.round(getEventScoreAverage(completeAcft, 'Push-Up Score')).toString()
+    acftTableCell.setAttribute('data-unit',unit)
+
+    acftTableCell = acftTableRow.insertCell(-1)
+    acftTableCell.innerHTML = Math.round(getEventScoreAverage(completeAcft, 'S/D/C Score')).toString()
+    acftTableCell.setAttribute('data-unit',unit)
+
+    acftTableCell = acftTableRow.insertCell(-1)
+    acftTableCell.innerHTML = Math.round(getEventScoreAverage(completeAcft, 'Leg Tuck Score')).toString()
+    acftTableCell.setAttribute('data-unit',unit)
+
+    acftTableCell = acftTableRow.insertCell(-1)
+    acftTableCell.innerHTML = Math.round(getEventScoreAverage(completeAcft, '2M Run Score')).toString()
+    acftTableCell.setAttribute('data-unit',unit)
+
+    // to calculate the average score, sum the averages
+    acftTableCell = acftTableRow.insertCell(-1)
+    acftTableCell.innerHTML = Math.round(getScoreAverage(completeAcft)).toString()
+    acftTableCell.setAttribute('data-unit',unit)
+  })
+
+  acftTable.appendChild(acftTableBody)
+}
+
+
+function cellClickHandler (e) {
+  let unitText = e.srcElement.getAttribute('data-unit')
+  let columnText = e.srcElement.getAttribute('data-column')
+
+  let acftComplianceDate = document.getElementById('acftComplianceDate').value
+  let acftComplianceDateParsed = ''
+  if (acftComplianceDate == undefined || acftComplianceDate === '') {
+    acftComplianceDateParsed = luxon.DateTime.local()
+  } else {
+    acftComplianceDateParsed = luxon.DateTime.fromISO(acftComplianceDate)
+  }
+
+  let soldierList = []
+  if (unitText === 'All') {
+    soldierList = dtmsAcftReport
+  } else {
+    soldierList = dtmsAcftReport.filter(getUnitSoldierList, { unit: unitText })
+  }
+
+  // check to see what column of data is requested
+  if (columnText === 'dueAcftWithin30Days') {
+    soldierList = soldierList.filter(isSoldierDueAcftWithin30Days, { projectedDate: acftComplianceDateParsed })
+  } else if (columnText === 'currentAcft') {
+    soldierList = soldierList.filter(isSoldierCurrentAcft, { projectedDate: acftComplianceDateParsed } )
+  } else if (columnText === 'expiredAcft') {
+    soldierList = soldierList.filter(isSoldierExpiredAcft, { projectedDate: acftComplianceDateParsed } )
+  } else if (columnText === 'unit') {
+    soldierList = soldierList
+  } else {
+    soldierList = dtmsAcftReport
+  }
+  displayPersonList(soldierList)
+}
+
+function displayPersonList (soldierList) {
+  let personTable = document.getElementById('personTable')
+
+  while(personTable.hasChildNodes()) {
+    personTable.removeChild(personTable.firstChild);
+  }
+
+  let personTableHeader = personTable.createTHead()
+  let personTableHeaderRow = personTableHeader.insertRow(-1)
+  let personTableHeaderCell = personTableHeaderRow.insertCell(-1)
+  personTableHeaderCell.innerHTML = 'Rank'
+
+  personTableHeaderCell = personTableHeaderRow.insertCell(-1)
+  personTableHeaderCell.innerHTML = 'Name'
+
+  personTableHeaderCell = personTableHeaderRow.insertCell(-1)
+  personTableHeaderCell.innerHTML = 'Unit'
+
+  personTableHeaderCell = personTableHeaderRow.insertCell(-1)
+  personTableHeaderCell.innerHTML = 'Date of Last Acft'
+
+  personTableHeaderCell = personTableHeaderRow.insertCell(-1)
+  personTableHeaderCell.innerHTML = 'Score'
+
+  let personTableBody = document.createElement('tbody')
+  personTable.appendChild(personTableBody)
+
+  let personTableBodyRow
+  let personTableBodyCell
+
+  soldierList.forEach(function (soldier) {
+    personTableBodyRow = personTableBody.insertRow(-1)
+
+    personTableBodyCell = personTableBodyRow.insertCell(-1)
+    personTableBodyCell.innerHTML = soldier['Rank']
+
+    personTableBodyCell = personTableBodyRow.insertCell(-1)
+    personTableBodyCell.innerHTML = soldier['Last Name']
+
+    // need to show Unit Attached, if no Unit Attached then Unit Assigned
+    personTableBodyCell = personTableBodyRow.insertCell(-1)
+    if (soldier['Unit Attached'] !== undefined) {
+      personTableBodyCell.innerHTML = soldier['Unit Attached']
+    } else {
+      personTableBodyCell.innerHTML = soldier['Unit Assigned']
+    }
+
+    personTableBodyCell = personTableBodyRow.insertCell(-1)
+    if (soldier['parsedLastAcft'] !== undefined) {
+      personTableBodyCell.innerHTML = soldier['parsedLastAcft'].toFormat('MM/dd/yyyy')
+    } else {
+      personTableBodyCell.innerHTML = ''
+    }
+
+    personTableBodyCell = personTableBodyRow.insertCell(-1)
+    if (soldier['parsedLastAcft'] !== undefined) {
+      personTableBodyCell.innerHTML = soldier['Total Score']
+    } else {
+      personTableBodyCell.innerHTML = ''
+    }
+
+  })
+  // after the first load, use 'updateAll' to refresh the table sort
+  $("#personTable").tablesorter({
+    theme: 'bootstrap',
+    sortReset: true,
+    sortRestart: true,
+  })
+  $("#personTable").trigger("updateAll")
+}
+
+function getUnitSoldierList (persRecord) {
+  // check to see if the unit selector is set to 'All', if yes then send back every record
+  if (this.unit === 'All') {
+    return true
+  }
+  // check to see if the soldier is attached to the unit, if attached to a unit, then he should not be listed on the 'assigned' roster
+  if (persRecord['Unit Attached'] !== undefined && persRecord['Unit Attached'].length > 0) {
+    return persRecord['Unit Attached'] === this.unit
+  } else {
+    return persRecord['Unit Assigned'] === this.unit
+  }
+}
+
+function isSoldierCurrentAcft (acftRecord) {
+  return ((acftRecord['parsedLastAcft'] !== undefined) && (acftRecord['parsedLastAcft'].plus({ months: 6 }) >= this.projectedDate))
+}
+
+function isSoldierDueAcftWithin30Days (acftRecord) {
+  return (acftRecord['parsedLastAcft'] === undefined || acftRecord['parsedLastAcft'].plus({ months: 5 }) <= this.projectedDate)
+}
+
+function isSoldierExpiredAcft (acftRecord) {
+  return ((acftRecord['parsedLastAcft'] === undefined) || (acftRecord['parsedLastAcft'].plus({ months: 6 }) < this.projectedDate))
+}
+
+function addScores({ totalScore, scoreCount }, score) {
+  return {
+    totalScore: totalScore + score,
+    scoreCount: scoreCount + 1,
+  }
+}
+
+function getScoreAverage (soldierList) {
+  let mdlScore = getEventScoreAverage(soldierList, 'Deadlift Score')
+  let sptScore = getEventScoreAverage(soldierList, 'Throw Score')
+  let hrpScore = getEventScoreAverage(soldierList, 'Push-Up Score')
+  let sdcScore = getEventScoreAverage(soldierList, 'S/D/C Score')
+  let ltkScore = getEventScoreAverage(soldierList, 'Leg Tuck Score')
+  let runScore = getEventScoreAverage(soldierList, '2M Run Score')
+  // round the event averages before summing them so the integers that appear in each column sum to the average
+  let roundedAverage = Math.round(mdlScore) + Math.round(sptScore) + Math.round(hrpScore) + Math.round(sdcScore) + Math.round(ltkScore) + Math.round(runScore)
+  return roundedAverage
+}
+
+function getScoreAboveZero (acftRecord) {
+    return (acftRecord[this] > 0)
+}
+
+function getEventScore (acftRecord) {
+    return (acftRecord[this])
+}
+
+function getEventScoreAverage (soldierList, eventType) {
+  const initialInfo = { totalScore: 0, scoreCount: 0 }
+  // for now, only check whether they have a score, don't check if it is for record
+  const scoreInfo = soldierList.filter(getRecordsWithDefinedField, { field: "Last ACFT" })
+    .filter(getScoreAboveZero, eventType)
+    .map(getEventScore, eventType)
+    .reduce(addScores, initialInfo)
+
+  const {totalScore, scoreCount} = scoreInfo
+  let averageScore = totalScore / scoreCount
+  if (isNaN(averageScore)) {
+    averageScore = 0
+  }
+  return averageScore
+}
+
+function getRecordsWithDefinedField (record) {
+  return record[this.field] !== undefined
+}
+
+function getUnits (persRecord) {
+  if (persRecord['Unit Attached'] !== undefined && persRecord['Unit Attached'].length > 0) {
+    return persRecord['Unit Attached'] 
+  } else {
+    return persRecord['Unit Assigned'] 
+  }
+}
+
+function getUniqueValues (valueArray, valueRecord) {
+  if (!valueArray.includes(valueRecord)) {
+    valueArray.push(valueRecord)
+  }
+  return valueArray
+}
+
+// take in a 'Last ACFT' Date, return a luxon time as the parsedLastAcft field
+function setParsedLastAcft(acftRecord) {
+  //acftRecord['parsedLastAcft'] = DateTime.fromJSDate(acftRecord['Last ACFT'])
+  // if the Last ACFT is text, split it and then create a new object
+  if (acftRecord['Last ACFT'] !== undefined) {
+    let splitDate = acftRecord['Last ACFT'].split('/')
+    // 0 is month
+    // 1 is day
+    // 2 is year
+    acftRecord['parsedLastAcft'] = DateTime.utc(parseInt(splitDate[2]), parseInt(splitDate[0]), parseInt(splitDate[1]))
+  }
+  return acftRecord
+}
+
+
+// by team, by person
+$('#displayAcftStats').on('click', function () {
+  // build the html table to show the training data
+  generateAcftTable()
+  $("#acftComplianceTable").tablesorter({
+    theme: 'bootstrap',
+    sortReset: true,
+    sortRestart: true,
+  })
+  $("#acftComplianceTable").trigger("updateAll")
+})
+</script>
+</body>
+</html>
