@@ -45,10 +45,10 @@ const acftComplianceDatePicker= datepicker(acftComplianceDate, {
 })
 
 // this contains personnel acft records
-$('#dtmsAcftReportXslx').on('change', function(event) {
+$('#dtmsAcftReportXslx').on('change', event => {
   var dtmsAcftReportFile = event.target.files[0]
   var reader = new FileReader()
-  reader.onload = function (e) {
+  reader.onload = e => {
     binary = ""
     bytes = new Uint8Array(e.target.result)
     length = bytes.byteLength
@@ -66,7 +66,7 @@ $('#dtmsAcftReportXslx').on('change', function(event) {
     // create a luxon DateTime named 'parsedLastAcft' from the 'Lastacft' JS Date
     dtmsAcftReport = dtmsAcftReport.map(setParsedLastAcft)
   }
-  reader.onerror = function (ex) {
+  reader.onerror = ex => {
     console.log(ex)
   }
   reader.readAsArrayBuffer(dtmsAcftReportFile)
@@ -127,16 +127,14 @@ function generateAcftTable () {
   // get the list of units from the dtmsAcftReport
   // use the 'Unit Attached' if exists, then use the 'Unit Assigned'
   // sort the units alphabetically
-  let dtmsUnitArray = dtmsAcftReport.map(getUnits)
-    .reduce(getUniqueValues,[])
-    .sort()
+  let dtmsUnitArray = dtmsAcftReport.map(getUnits).sort()
+  let uniqueUnits = new Set(dtmsUnitArray)
 
   // add the 'All' group to the dtmsUnitArray to show stats for all Soldiers
-  dtmsUnitArray.push('All')
+  uniqueUnits.add('All')
 
-  dtmsUnitArray.forEach(function (unit) {
-    // on the export, do all Soldiers have records?
-    // first, make the list of all Soldiers in the unit, then find their acft scores, it is ok if a Soldier doesn't have a pt score, just print blank
+  uniqueUnits.forEach(unit => {
+    // generate the list of all Soldiers in the unit, then find their acft scores, it is ok if a Soldier doesn't have an acft score, just print blank
 
     // get Soldiers in the unit
     let soldierList = dtmsAcftReport.filter(getUnitSoldierList, { unit: unit })
@@ -154,7 +152,7 @@ function generateAcftTable () {
     let numCompleteAcft = completeAcft.length
     let numRequiredAcft = parseInt(completeAcft.length) + parseInt(notCompleteAcft.length)
 
-    acftTableCell.innerHTML = `${Math.round(numCompleteAcft*100/numRequiredAcft)}% (${numCompleteAcft} / ${numRequiredAcft})`;
+    acftTableCell.innerHTML = `${Math.round(numCompleteAcft * 100 / numRequiredAcft)}% (${numCompleteAcft} / ${numRequiredAcft})`;
     acftTableCell.setAttribute('data-unit',unit)
     acftTableCell.setAttribute('data-column','currentAcft')
     acftTableCell.onclick = cellClickHandler
@@ -200,10 +198,8 @@ function generateAcftTable () {
     acftTableCell.innerHTML = Math.round(getScoreAverage(completeAcft)).toString()
     acftTableCell.setAttribute('data-unit',unit)
   })
-
   acftTable.appendChild(acftTableBody)
 }
-
 
 function cellClickHandler (e) {
   let unitText = e.srcElement.getAttribute('data-unit')
@@ -269,7 +265,7 @@ function displayPersonList (soldierList) {
   let personTableBodyRow
   let personTableBodyCell
 
-  soldierList.forEach(function (soldier) {
+  soldierList.forEach(soldier => {
     personTableBodyRow = personTableBody.insertRow(-1)
 
     personTableBodyCell = personTableBodyRow.insertCell(-1)
@@ -278,7 +274,7 @@ function displayPersonList (soldierList) {
     personTableBodyCell = personTableBodyRow.insertCell(-1)
     personTableBodyCell.innerHTML = soldier['Last Name']
 
-    // need to show Unit Attached, if no Unit Attached then Unit Assigned
+    // show Unit Attached, if none show Unit Assigned
     personTableBodyCell = personTableBodyRow.insertCell(-1)
     if (soldier['Unit Attached'] !== undefined) {
       personTableBodyCell.innerHTML = soldier['Unit Attached']
@@ -310,29 +306,29 @@ function displayPersonList (soldierList) {
   $("#personTable").trigger("updateAll")
 }
 
-function getUnitSoldierList (persRecord) {
+function getUnitSoldierList (record) {
   // check to see if the unit selector is set to 'All', if yes then send back every record
   if (this.unit === 'All') {
     return true
   }
   // check to see if the soldier is attached to the unit, if attached to a unit, then he should not be listed on the 'assigned' roster
-  if (persRecord['Unit Attached'] !== undefined && persRecord['Unit Attached'].length > 0) {
-    return persRecord['Unit Attached'] === this.unit
+  if (record['Unit Attached'] !== undefined && record['Unit Attached'].length > 0) {
+    return record['Unit Attached'] === this.unit
   } else {
-    return persRecord['Unit Assigned'] === this.unit
+    return record['Unit Assigned'] === this.unit
   }
 }
 
-function isSoldierCurrentAcft (acftRecord) {
-  return ((acftRecord['parsedLastAcft'] !== undefined) && (acftRecord['parsedLastAcft'].plus({ months: 6 }) >= this.projectedDate))
+function isSoldierCurrentAcft (record) {
+  return ((record['parsedLastAcft'] !== undefined) && (record['parsedLastAcft'].plus({ months: 6 }) >= this.projectedDate))
 }
 
-function isSoldierDueAcftWithin30Days (acftRecord) {
-  return (acftRecord['parsedLastAcft'] === undefined || acftRecord['parsedLastAcft'].plus({ months: 5 }) <= this.projectedDate)
+function isSoldierDueAcftWithin30Days (record) {
+  return (record['parsedLastAcft'] === undefined || record['parsedLastAcft'].plus({ months: 5 }) <= this.projectedDate)
 }
 
-function isSoldierExpiredAcft (acftRecord) {
-  return ((acftRecord['parsedLastAcft'] === undefined) || (acftRecord['parsedLastAcft'].plus({ months: 6 }) < this.projectedDate))
+function isSoldierExpiredAcft (record) {
+  return ((record['parsedLastAcft'] === undefined) || (record['parsedLastAcft'].plus({ months: 6 }) < this.projectedDate))
 }
 
 function addScores({ totalScore, scoreCount }, score) {
@@ -354,20 +350,12 @@ function getScoreAverage (soldierList) {
   return roundedAverage
 }
 
-function getScoreAboveZero (acftRecord) {
-    return (acftRecord[this] > 0)
-}
-
-function getEventScore (acftRecord) {
-    return (acftRecord[this])
-}
-
 function getEventScoreAverage (soldierList, eventType) {
   const initialInfo = { totalScore: 0, scoreCount: 0 }
   // for now, only check whether they have a score, don't check if it is for record
-  const scoreInfo = soldierList.filter(getRecordsWithDefinedField, { field: "Last ACFT" })
-    .filter(getScoreAboveZero, eventType)
-    .map(getEventScore, eventType)
+  const scoreInfo = soldierList.filter(record => record['Last ACFT'] !== undefined)
+    .filter(function (record) { return record[this] > 0 }, eventType)
+    .map(function (record) { return record[this] }, eventType)
     .reduce(addScores, initialInfo)
 
   const {totalScore, scoreCount} = scoreInfo
@@ -378,43 +366,26 @@ function getEventScoreAverage (soldierList, eventType) {
   return averageScore
 }
 
-function getRecordsWithDefinedField (record) {
-  return record[this.field] !== undefined
-}
-
-function getUnits (persRecord) {
-  if (persRecord['Unit Attached'] !== undefined && persRecord['Unit Attached'].length > 0) {
-    return persRecord['Unit Attached'] 
+function getUnits (record) {
+  if (record['Unit Attached'] !== undefined && record['Unit Attached'].length > 0) {
+    return record['Unit Attached'] 
   } else {
-    return persRecord['Unit Assigned'] 
+    return record['Unit Assigned'] 
   }
-}
-
-function getUniqueValues (valueArray, valueRecord) {
-  if (!valueArray.includes(valueRecord)) {
-    valueArray.push(valueRecord)
-  }
-  return valueArray
 }
 
 // take in a 'Last ACFT' Date, return a luxon time as the parsedLastAcft field
-function setParsedLastAcft(acftRecord) {
-  //acftRecord['parsedLastAcft'] = DateTime.fromJSDate(acftRecord['Last ACFT'])
-  // if the Last ACFT is text, split it and then create a new object
-  if (acftRecord['Last ACFT'] !== undefined) {
-    let splitDate = acftRecord['Last ACFT'].split('/')
-    // 0 is month
-    // 1 is day
-    // 2 is year
-    acftRecord['parsedLastAcft'] = DateTime.utc(parseInt(splitDate[2]), parseInt(splitDate[0]), parseInt(splitDate[1]))
+function setParsedLastAcft(record) {
+  if (record['Last ACFT'] !== undefined) {
+    let splitDate = record['Last ACFT'].split('/')
+    record['parsedLastAcft'] = DateTime.utc(parseInt(splitDate[2]), parseInt(splitDate[0]), parseInt(splitDate[1]))
   }
-  return acftRecord
+  return record
 }
 
-
 // by team, by person
-$('#displayAcftStats').on('click', function () {
-  // build the html table to show the training data
+$('#displayAcftStats').on('click', () => {
+  // build the html table to show the acft data
   generateAcftTable()
   $("#acftComplianceTable").tablesorter({
     theme: 'bootstrap',
